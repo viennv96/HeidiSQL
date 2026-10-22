@@ -11,6 +11,9 @@ on:
     branches: [ master ]
     paths: [ ".github/workflows/build-macos-intel.yml" ]
 
+permissions:
+  contents: write
+
 defaults:
   run:
     shell: bash
@@ -26,7 +29,7 @@ jobs:
       MIN_MACOS: "14.0"
     steps:
       - name: Checkout HeidiSQL (upstream, Lazarus branch)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: HeidiSQL/HeidiSQL
           ref: ${{ github.event.inputs.ref || 'lazarus' }}
@@ -38,7 +41,7 @@ jobs:
           test "$(uname -m)" = "x86_64"
 
       - name: Cache Lazarus/FPC installers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/lazarus-installers
           key: lazarus48-installers-macos-x86_64-fpc-3.2.4rc1a
@@ -119,11 +122,42 @@ jobs:
           echo "::notice title=minos after patch::$SUMMARY"
           echo "::notice title=main executable::$(file heidisql.app/Contents/MacOS/heidisql | sed 's/.*: //')"
 
+      - name: Get version info
+        id: ver
+        run: |
+          V=$(xmllint --xpath 'concat(//VersionInfo/MajorVersionNr/@Value,".",//VersionInfo/MinorVersionNr/@Value,".",//VersionInfo/RevisionNr/@Value,".",//VersionInfo/BuildNr/@Value)' heidisql.lpi 2>/dev/null || echo "0.0")
+          V=$(echo "$V" | sed 's/\.*$//; s/\.\.*/./g')
+          SHA=$(git rev-parse --short HEAD)
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          echo "::notice title=version::$V ($SHA)"
+
       - name: Zip app bundle
-        run: /usr/bin/ditto -c -k --keepParent heidisql.app "HeidiSQL-macos-x86_64.zip"
+        run: /usr/bin/ditto -c -k --keepParent heidisql.app "HeidiSQL-${{ steps.ver.outputs.version }}-macos-x86_64.zip"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: HeidiSQL-macos-x86_64
-          path: HeidiSQL-macos-x86_64.zip
+          path: HeidiSQL-*-macos-x86_64.zip
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.sha }}-macos-x86_64
+          target_commitish: ${{ github.sha }}
+          name: HeidiSQL ${{ steps.ver.outputs.version }} – macOS Intel (x86_64)
+          make_latest: true
+          files: HeidiSQL-*-macos-x86_64.zip
+          body: |
+            Bản build không chính thức của HeidiSQL cho **macOS Intel (x86_64)**, chạy từ **macOS 14 Sonoma** trở lên.
+
+            - Mã nguồn: [HeidiSQL/HeidiSQL@${{ steps.ver.outputs.sha }}](https://github.com/HeidiSQL/HeidiSQL/commit/${{ steps.ver.outputs.sha }}) (branch `${{ github.event.inputs.ref || 'lazarus' }}`)
+            - Build ngày ${{ steps.ver.outputs.date }} bằng FPC 3.2.4rc1a + Lazarus 4.8 trên runner `macos-15-intel`
+            - Ký ad-hoc, chưa notarize
+
+            **Cài đặt:** giải nén, kéo `heidisql.app` vào Applications, rồi chạy:
+            ```
+            xattr -cr /Applications/heidisql.app
+            ```
