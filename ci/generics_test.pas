@@ -64,8 +64,30 @@ begin
   Check('pointer', f, 1000); D.Free;
 end;
 
+procedure TestStrCachePattern;
+// Same pattern as TDBObject.GetTableColumns: ContainsKey -> AddOrSetValue -> TryGetValue,
+// keys built from UTF-8 strings, fresh string instance on every call.
+var D: TDictionary<String, TObject>; i, f: Integer; o: TObject; Db, Tbl: UTF8String;
+  function Key: String;
+  begin
+    Result := '`' + Db + '`.`' + Tbl + '`';
+  end;
+begin
+  f := 0; D := TDictionary<String, TObject>.Create;
+  Db := 'levnode9_migration2';
+  SetCodePage(RawByteString(Db), CP_UTF8, False);
+  for i := 0 to 499 do begin
+    Tbl := 'dedicated_plans_' + IntToStr(i);
+    if not D.ContainsKey(Key) then
+      D.AddOrSetValue(Key, TObject(PtrUInt(i+1)));
+    o := nil;
+    if (not D.TryGetValue(Key, o)) or (PtrUInt(o) <> PtrUInt(i+1)) then Inc(f);
+  end;
+  Check('string-cache-pattern', f, 500); D.Free;
+end;
+
 begin
   Report := '';
-  TestEnum; TestEnum4; TestInt; TestStr; TestPtr;
+  TestEnum; TestEnum4; TestInt; TestStr; TestPtr; TestStrCachePattern;
   WriteLn(Report);
 end.

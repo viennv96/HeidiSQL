@@ -1,0 +1,86 @@
+--- a/source/dbconnection.pas
++++ b/source/dbconnection.pas
+@@ -11362,12 +11362,17 @@
+ function TDBObject.GetTableColumns: TTableColumnList;
+ var
+   ColumnsInCache: TTableColumnList;
++  CacheKey: String;
+ begin
+   // Return columns from table object
+-  if not FConnection.FColumnCache.ContainsKey(QuotedDbAndTableName) then begin
+-    FConnection.FColumnCache.AddOrSetValue(QuotedDbAndTableName, Connection.GetTableColumns(Self));
++  // Compute the key once and never use ColumnsInCache unless the lookup succeeded,
++  // otherwise it is uninitialized (crash on macOS x86_64, see fork patches/0002)
++  CacheKey := QuotedDbAndTableName;
++  ColumnsInCache := nil;
++  if (not FConnection.FColumnCache.TryGetValue(CacheKey, ColumnsInCache)) or (not Assigned(ColumnsInCache)) then begin
++    ColumnsInCache := Connection.GetTableColumns(Self);
++    FConnection.FColumnCache.AddOrSetValue(CacheKey, ColumnsInCache);
+   end;
+-  FConnection.FColumnCache.TryGetValue(QuotedDbAndTableName, ColumnsInCache);
+   Result := TTableColumnList.Create;
+   Result.Assign(ColumnsInCache);
+ end;
+@@ -11375,12 +11380,17 @@
+ function TDBObject.GetTableKeys: TTableKeyList;
+ var
+   KeysInCache: TTableKeyList;
++  CacheKey: String;
+ begin
+   // Return keys from table object
+-  if not FConnection.FKeyCache.ContainsKey(QuotedDbAndTableName) then begin
+-    FConnection.FKeyCache.AddOrSetValue(QuotedDbAndTableName, Connection.GetTableKeys(Self));
++  // Compute the key once and never use KeysInCache unless the lookup succeeded,
++  // otherwise it is uninitialized (crash on macOS x86_64, see fork patches/0002)
++  CacheKey := QuotedDbAndTableName;
++  KeysInCache := nil;
++  if (not FConnection.FKeyCache.TryGetValue(CacheKey, KeysInCache)) or (not Assigned(KeysInCache)) then begin
++    KeysInCache := Connection.GetTableKeys(Self);
++    FConnection.FKeyCache.AddOrSetValue(CacheKey, KeysInCache);
+   end;
+-  FConnection.FKeyCache.TryGetValue(QuotedDbAndTableName, KeysInCache);
+   Result := TTableKeyList.Create;
+   Result.Assign(KeysInCache);
+ end;
+@@ -11388,12 +11398,17 @@
+ function TDBObject.GetTableForeignKeys: TForeignKeyList;
+ var
+   ForeignKeysInCache: TForeignKeyList;
++  CacheKey: String;
+ begin
+   // Return foreign keys from table object
+-  if not FConnection.FForeignKeyCache.ContainsKey(QuotedDbAndTableName) then begin
+-    FConnection.FForeignKeyCache.AddOrSetValue(QuotedDbAndTableName, Connection.GetTableForeignKeys(Self));
++  // Compute the key once and never use ForeignKeysInCache unless the lookup succeeded,
++  // otherwise it is uninitialized (crash on macOS x86_64, see fork patches/0002)
++  CacheKey := QuotedDbAndTableName;
++  ForeignKeysInCache := nil;
++  if (not FConnection.FForeignKeyCache.TryGetValue(CacheKey, ForeignKeysInCache)) or (not Assigned(ForeignKeysInCache)) then begin
++    ForeignKeysInCache := Connection.GetTableForeignKeys(Self);
++    FConnection.FForeignKeyCache.AddOrSetValue(CacheKey, ForeignKeysInCache);
+   end;
+-  FConnection.FForeignKeyCache.TryGetValue(QuotedDbAndTableName, ForeignKeysInCache);
+   Result := TForeignKeyList.Create;
+   Result.Assign(ForeignKeysInCache);
+ end;
+@@ -11401,12 +11416,17 @@
+ function TDBObject.GetTableCheckConstraints: TCheckConstraintList;
+ var
+   CheckConstraintsInCache: TCheckConstraintList;
++  CacheKey: String;
+ begin
+   // Return check constraint from table object
+-  if not FConnection.CheckConstraintCache.ContainsKey(QuotedDbAndTableName) then begin
+-    FConnection.CheckConstraintCache.AddOrSetValue(QuotedDbAndTableName, Connection.GetTableCheckConstraints(Self));
++  // Compute the key once and never use CheckConstraintsInCache unless the lookup succeeded,
++  // otherwise it is uninitialized (crash on macOS x86_64, see fork patches/0002)
++  CacheKey := QuotedDbAndTableName;
++  CheckConstraintsInCache := nil;
++  if (not FConnection.CheckConstraintCache.TryGetValue(CacheKey, CheckConstraintsInCache)) or (not Assigned(CheckConstraintsInCache)) then begin
++    CheckConstraintsInCache := Connection.GetTableCheckConstraints(Self);
++    FConnection.CheckConstraintCache.AddOrSetValue(CacheKey, CheckConstraintsInCache);
+   end;
+-  FConnection.CheckConstraintCache.TryGetValue(QuotedDbAndTableName, CheckConstraintsInCache);
+   Result := TCheckConstraintList.Create;
+   Result.Assign(CheckConstraintsInCache);
+ end;
