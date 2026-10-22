@@ -1,0 +1,112 @@
+name: Build macOS Intel (x86_64, macOS 14+)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch/tag/commit của HeidiSQL gốc để build"
+        default: "lazarus"
+        required: true
+  push:
+    branches: [ master ]
+    paths: [ ".github/workflows/build-macos-intel.yml" ]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: macOS x86_64 app bundle
+    runs-on: macos-15-intel
+    env:
+      GITHUB: 1
+      LAZ_URL: "https://sourceforge.net/projects/lazarus/files/Lazarus%20macOS%20x86-64/Lazarus%204.8/lazarus-darwin-x86_64-4.8.zip"
+      FPC_URL: "https://sourceforge.net/projects/lazarus/files/Lazarus%20macOS%20x86-64/Lazarus%204.8/fpc-3.2.4rc1a.intelarm64-macosx.dmg"
+      MIN_MACOS: "14.0"
+    steps:
+      - name: Checkout HeidiSQL (upstream, Lazarus branch)
+        uses: actions/checkout@v4
+        with:
+          repository: HeidiSQL/HeidiSQL
+          ref: ${{ github.event.inputs.ref || 'lazarus' }}
+
+      - name: Check runner architecture
+        run: |
+          uname -m
+          sw_vers
+          test "$(uname -m)" = "x86_64"
+
+      - name: Cache Lazarus/FPC installers
+        uses: actions/cache@v4
+        with:
+          path: ~/lazarus-installers
+          key: lazarus48-installers-macos-x86_64-fpc-3.2.4rc1a
+
+      - name: Install FPC 3.2.4rc1a + Lazarus 4.8 (x86_64)
+        run: |
+          C="$HOME/lazarus-installers"; mkdir -p "$C"
+          [ -s "$C/fpc.dmg" ]      || curl -fL --retry 5 -o "$C/fpc.dmg" "$FPC_URL"
+          [ -s "$C/lazarus.zip" ]  || curl -fL --retry 5 -o "$C/lazarus.zip" "$LAZ_URL"
+          sudo hdiutil attach "$C/fpc.dmg"
+          FPC_VOL=$(ls -d /Volumes/fpc* | head -1)
+          FPC_PKG=$(find "$FPC_VOL" -maxdepth 1 -name "*.pkg" | head -1)
+          sudo installer -package "$FPC_PKG" -target /
+          sudo hdiutil detach "$FPC_VOL"
+          xattr -cr "$C/lazarus.zip"
+          unzip -q "$C/lazarus.zip" -d "$RUNNER_TEMP"
+          sed -i '' 's|"/Developer/lazarus/"|"'$RUNNER_TEMP'/lazarus/"|g' "$RUNNER_TEMP/lazarus/config/environmentoptions.xml" 2>/dev/null || true
+          sudo ln -sf "$RUNNER_TEMP/lazarus/lazbuild" /usr/local/bin/lazbuild
+          echo "$RUNNER_TEMP/lazarus" >> "$GITHUB_PATH"
+          fpc -iV; fpc -iTP
+
+      - name: Patch Lazarus 4.8 (same patches as upstream CI)
+        run: |
+          LAZARUS_DIR="$RUNNER_TEMP/lazarus"
+          for p in extra/lazarus-patches/4.8/*.patch; do
+            patch -d "$LAZARUS_DIR" -p1 --dry-run < "$p"
+            patch -d "$LAZARUS_DIR" -p1 < "$p"
+          done
+
+      - name: Install FreeTDS
+        run: brew install freetds
+
+      - name: Build HeidiSQL
+        run: |
+          make build-macos
+          file out/macos/heidisql
+          lipo -archs out/macos/heidisql | grep -q x86_64
+
+      - name: Create app bundle (ad-hoc signed, min macOS 14)
+        run: |
+          sed -i '' "s|<string>15.0</string>|<string>${MIN_MACOS}</string>|" create-macos-app.sh
+          grep -n "LSMinimumSystemVersion" -A1 create-macos-app.sh
+          ./create-macos-app.sh --adhoc
+
+      - name: Lower minimum OS of bundled binaries to macOS 14
+        run: |
+          SDK=$(xcrun --show-sdk-version)
+          find heidisql.app/Contents -type f \( -perm -u+x -o -name "*.dylib" -o -name "*.so" \) | while read -r f; do
+            file "$f" | grep -q "Mach-O" || continue
+            MINOS=$(vtool -show-build "$f" 2>/dev/null | awk '/minos/ {print $2; exit}')
+            if [ -n "$MINOS" ] && [ "${MINOS%%.*}" -gt 14 ]; then
+              echo "minos $MINOS -> $MIN_MACOS : $f"
+              vtool -set-build-version macos "$MIN_MACOS" "$SDK" -replace -output "$f.tmp" "$f" && mv "$f.tmp" "$f"
+            fi
+          done
+          find heidisql.app/Contents -type f \( -name "*.dylib" -o -name "*.so" \) -exec codesign --force --sign - {} \;
+          codesign --force --deep --sign - heidisql.app
+          codesign --verify --deep --strict --verbose=2 heidisql.app
+          echo "--- minos after patch ---"
+          find heidisql.app/Contents -type f | while read -r f; do
+            file "$f" | grep -q "Mach-O" && echo "$(vtool -show-build "$f" 2>/dev/null | awk '/minos/ {print $2; exit}')  $f"
+          done
+
+      - name: Zip app bundle
+        run: /usr/bin/ditto -c -k --keepParent heidisql.app "HeidiSQL-macos-x86_64.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeidiSQL-macos-x86_64
+          path: HeidiSQL-macos-x86_64.zip
