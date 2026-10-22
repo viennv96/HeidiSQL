@@ -39,6 +39,23 @@ jobs:
           repository: HeidiSQL/HeidiSQL
           ref: ${{ github.event.inputs.ref || 'lazarus' }}
 
+      - name: Checkout fork (local patches and CI helpers)
+        uses: actions/checkout@v6
+        with:
+          path: _fork
+          sparse-checkout: |
+            patches
+            ci
+
+      - name: Apply local patches
+        run: |
+          shopt -s nullglob
+          for p in _fork/patches/*.patch; do
+            echo "Applying $p"
+            patch -p1 --forward < "$p"
+          done
+          echo "::notice title=local patches::$(ls _fork/patches/*.patch 2>/dev/null | xargs -n1 basename | tr '\n' ' ')"
+
       - name: Check runner architecture
         run: |
           uname -m
@@ -75,6 +92,14 @@ jobs:
             patch -d "$LAZARUS_DIR" -p1 --dry-run < "$p"
             patch -d "$LAZARUS_DIR" -p1 < "$p"
           done
+
+      - name: Test enum-key TDictionary with this FPC
+        run: |
+          mkdir -p _enumtest
+          fpc -O1 -FE_enumtest _fork/ci/enumdict_test.pas >/dev/null
+          OUT=$(./_enumtest/enumdict_test)
+          echo "$OUT"
+          echo "::notice title=FPC enum dictionary test::$OUT"
 
       - name: Install FreeTDS
         run: brew install freetds

@@ -1,0 +1,45 @@
+diff -u -r a/source/dbconnection.pas b/source/dbconnection.pas
+--- a/source/dbconnection.pas	2026-10-22 09:21:49.903945492 +0000
++++ b/source/dbconnection.pas	2026-10-22 09:21:49.905895049 +0000
+@@ -1931,7 +1931,7 @@
+     FLibraries := TNetTypeLibs.Create;
+   end;
+ 
+-  if not FLibraries.ContainsKey(NetType) then begin
++  if not FLibraries.ContainsKey(Ord(NetType)) then begin
+     FoundLibs := TStringList.Create;
+     rx := TRegExpr.Create;
+     rx.ModifierI := True;
+@@ -2008,9 +2008,17 @@
+       end;
+     end;
+     rx.Free;
+-    FLibraries.Add(NetType, FoundLibs);
++    FLibraries.AddOrSetValue(Ord(NetType), FoundLibs);
++    Result := FoundLibs;
++    Exit;
++  end;
++  if not FLibraries.TryGetValue(Ord(NetType), Result) then
++    Result := nil;
++  if not Assigned(Result) then begin
++    // Never hand out nil, callers access .Count directly
++    Result := TStringList.Create;
++    FLibraries.AddOrSetValue(Ord(NetType), Result);
+   end;
+-  FLibraries.TryGetValue(NetType, Result);
+ end;
+ 
+ 
+diff -u -r a/source/dbstructures.pas b/source/dbstructures.pas
+--- a/source/dbstructures.pas	2026-10-22 09:21:49.903913172 +0000
++++ b/source/dbstructures.pas	2026-10-22 09:21:49.905870432 +0000
+@@ -31,7 +31,8 @@
+     ntSQLiteEncrypted
+     );
+   TNetTypeGroup = (ngMySQL, ngMSSQL, ngPgSQL, ngSQLite, ngInterbase);
+-  TNetTypeLibs = TDictionary<TNetType, TStringList>;
++  // Keyed by Ord(TNetType): enum keys break lookups with FPC 3.2.4rc1 on darwin/x86_64
++  TNetTypeLibs = TDictionary<Integer, TStringList>;
+ 
+   // SQL query ids and provider
+   TStringMap = TDictionary<string,string>;
