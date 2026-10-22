@@ -1,0 +1,41 @@
+name: FPC generics test (macOS Intel)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths: [ "ci/generics_test.pas", ".github/workflows/fpc-generics-test.yml" ]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: ci
+      - name: Cache Lazarus/FPC installers
+        uses: actions/cache@v6
+        with:
+          path: ~/lazarus-installers
+          key: lazarus48-installers-macos-x86_64-fpc-3.2.4rc1a
+      - name: Install FPC
+        run: |
+          C="$HOME/lazarus-installers"; mkdir -p "$C"
+          [ -s "$C/fpc.dmg" ] || curl -fL --retry 5 -o "$C/fpc.dmg" "https://sourceforge.net/projects/lazarus/files/Lazarus%20macOS%20x86-64/Lazarus%204.8/fpc-3.2.4rc1a.intelarm64-macosx.dmg"
+          sudo hdiutil attach "$C/fpc.dmg"
+          V=$(ls -d /Volumes/fpc* | head -1)
+          sudo installer -package "$(find "$V" -maxdepth 1 -name '*.pkg' | head -1)" -target /
+          fpc -iV
+      - name: Run tests at several optimization levels
+        run: |
+          for O in "-O-" "-O1" "-O2" "-O3" "-O3 -CR -gl"; do
+            rm -rf out && mkdir out
+            fpc $O -FEout ci/generics_test.pas >/dev/null
+            R=$(./out/generics_test)
+            echo "$O: $R"
+            echo "::notice title=fpc $O::$R"
+          done
