@@ -107,9 +107,13 @@ jobs:
       - name: Build HeidiSQL
         run: |
           if [ "$DEBUG_BUILD" = "1" ]; then
+            # Compile every unit (LCL, LazUtils, VirtualTrees, SynEdit...) with DWARF + line info too
+            FPCCFG=$(ls /etc/fpc.cfg /usr/local/etc/fpc.cfg 2>/dev/null | head -1)
+            echo "fpc.cfg: $FPCCFG"; test -n "$FPCCFG"
+            printf '\n#IFDEF DARWIN\n-g\n-gw3\n-gl\n#ENDIF\n' | sudo tee -a "$FPCCFG"
             # Debug mode + line info unit, so HeidiSQL's exception dialog shows unit:line
             perl -0pi -e 's|(<DebugInfoType Value="dsDwarf3"/>)|$1<UseLineInfoUnit Value="True"/>|' heidisql.lpi
-            make build-macos OPTS="-B --bm=Debug"
+            make build-macos OPTS="-B --build-all --bm=Debug"
             dsymutil out/macos/heidisql -o out/macos/heidisql.dSYM
             ls out/macos/heidisql.dSYM/Contents/Resources/DWARF/
           else
