@@ -85,22 +85,39 @@ jobs:
 
       - name: Lower minimum OS of bundled binaries to macOS 14
         run: |
+          set +o pipefail
           SDK=$(xcrun --show-sdk-version)
-          find heidisql.app/Contents -type f \( -perm -u+x -o -name "*.dylib" -o -name "*.so" \) | while read -r f; do
-            file "$f" | grep -q "Mach-O" || continue
-            MINOS=$(vtool -show-build "$f" 2>/dev/null | awk '/minos/ {print $2; exit}')
+          is_macho() { file "$1" | grep -q "Mach-O"; }
+          get_minos() { vtool -show-build "$1" 2>/dev/null | awk '/minos|^ *version/ {print $2; exit}' || true; }
+
+          find heidisql.app/Contents -type f > files.txt
+          while read -r f; do
+            is_macho "$f" || continue
+            MINOS=$(get_minos "$f")
             if [ -n "$MINOS" ] && [ "${MINOS%%.*}" -gt 14 ]; then
-              echo "minos $MINOS -> $MIN_MACOS : $f"
-              vtool -set-build-version macos "$MIN_MACOS" "$SDK" -replace -output "$f.tmp" "$f" && mv "$f.tmp" "$f"
+              if vtool -set-build-version macos "$MIN_MACOS" "$SDK" -replace -output "$f.tmp" "$f"; then
+                mv "$f.tmp" "$f"
+                echo "minos $MINOS -> $MIN_MACOS : $f"
+              else
+                rm -f "$f.tmp"
+                echo "::warning::vtool failed on ${f#heidisql.app/} (minos $MINOS)"
+              fi
             fi
-          done
+          done < files.txt
+
           find heidisql.app/Contents -type f \( -name "*.dylib" -o -name "*.so" \) -exec codesign --force --sign - {} \;
           codesign --force --deep --sign - heidisql.app
           codesign --verify --deep --strict --verbose=2 heidisql.app
-          echo "--- minos after patch ---"
-          find heidisql.app/Contents -type f | while read -r f; do
-            file "$f" | grep -q "Mach-O" && echo "$(vtool -show-build "$f" 2>/dev/null | awk '/minos/ {print $2; exit}')  $f"
-          done
+
+          SUMMARY=""
+          while read -r f; do
+            if is_macho "$f"; then
+              SUMMARY="$SUMMARY $(get_minos "$f"):$(basename "$f");"
+            fi
+          done < files.txt
+          rm -f files.txt
+          echo "::notice title=minos after patch::$SUMMARY"
+          echo "::notice title=main executable::$(file heidisql.app/Contents/MacOS/heidisql | sed 's/.*: //')"
 
       - name: Zip app bundle
         run: /usr/bin/ditto -c -k --keepParent heidisql.app "HeidiSQL-macos-x86_64.zip"
